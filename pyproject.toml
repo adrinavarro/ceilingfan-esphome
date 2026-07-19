@@ -1,0 +1,28 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ceilingfan-esphome"
+version = "0.1.0"
+description = "Discover, learn, and deploy local RF ceiling fan bridges."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "ceilingfan-esphome contributors" }]
+dependencies = [
+  "numpy>=2.0",
+  "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+ceilingfan = "ceilingfan_esphome.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ceilingfan_esphome"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,0 +1,11 @@
+.DS_Store
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+*.sigmf-data
+captures/
+dist/
+firmware/secrets.yaml
+firmware/generated.yaml
+output/

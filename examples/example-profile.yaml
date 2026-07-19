@@ -1,0 +1,40 @@
+schema_version: 1
+name: Example ceiling fan
+frequency_hz: 433920000
+modulation: ASK/OOK
+output_power_dbm: 0
+commands:
+  fan_off:
+    preamble_us: [1053]
+    frame_us: [1053, -337, 355, -1031]
+    gap_us: 7688
+    repetitions: 7
+    trailing_space_us: 337
+    confidence: 1.0
+    observations: 3
+  fan_speed_1:
+    preamble_us: [1053]
+    frame_us: [355, -1031, 1053, -337]
+    gap_us: 7688
+    repetitions: 7
+    trailing_space_us: 337
+    confidence: 1.0
+    observations: 3
+  light_off:
+    preamble_us: [1053]
+    frame_us: [1053, -337, 1053, -337]
+    gap_us: 7688
+    repetitions: 7
+    trailing_space_us: 337
+    confidence: 1.0
+    observations: 3
+  light_on:
+    preamble_us: [1053]
+    frame_us: [355, -1031, 355, -1031]
+    gap_us: 7688
+    repetitions: 7
+    trailing_space_us: 337
+    confidence: 1.0
+    observations: 3
+notes:
+  - Synthetic example for software testing only. Do not transmit it to a real fan.
