@@ -1,0 +1,284 @@
+# Learning firmware. It verifies the CC1101, enables Wi-Fi/OTA, and streams RF
+# observations. `hardware onboard` installs it over USB the first time;
+# `learn prepare` reinstalls it over OTA before learning another fan.
+substitutions:
+  device_name: ceilingfan-learning
+  friendly_name: Ceiling fan learning
+
+esphome:
+  name: ${device_name}
+  friendly_name: ${friendly_name}
+  min_version: 2025.12.0
+  # Advertised over mDNS so `ceilingfan control discover` can find the bridge.
+  project:
+    name: adrinavarro.ceilingfan-esphome
+    version: learning
+  on_boot:
+    priority: -100
+    then:
+      - cc1101.begin_rx
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+logger:
+  level: DEBUG
+  task_log_buffer_size: 2048
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "${friendly_name} fallback"
+    password: !secret fallback_password
+
+captive_portal:
+
+spi:
+  clk_pin: GPIO18
+  mosi_pin: GPIO23
+  miso_pin: GPIO19
+
+cc1101:
+  id: radio
+  cs_pin: GPIO14
+  frequency: 433.92MHz
+  modulation_type: ASK/OOK
+  symbol_rate: 5000
+  output_power: 0
+
+# GDO2 is receive-only in the recommended dual-pin wiring.
+remote_receiver:
+  pin: GPIO27
+  dump: raw
+  filter: 50us
+  idle: 10ms
+  rmt_symbols: 1024
+  on_raw:
+    then:
+      - lambda: |-
+          // Generic static OOK path. Split one button event at its repeated-frame
+          // gap, discard a partial detector-startup frame, take median timings,
+          // and emit one compact line that the host-side learner can persist.
+          const auto log_repeated_static = [&]() {
+            std::vector<int32_t> spaces;
+            for (int32_t duration : x) {
+              if (duration < 0) spaces.push_back(-duration);
+            }
+            if (spaces.size() < 3) return;
+            std::sort(spaces.begin(), spaces.end());
+            float best_ratio = 0.0f;
+            int32_t gap_threshold = 0;
+            for (size_t index = 0; index + 1 < spaces.size(); index++) {
+              if (spaces[index + 1] < 1500) continue;
+              const float ratio = static_cast<float>(spaces[index + 1]) /
+                                  std::max<int32_t>(spaces[index], 1);
+              if (ratio > best_ratio) {
+                best_ratio = ratio;
+                gap_threshold = (spaces[index] + spaces[index + 1]) / 2;
+              }
+            }
+            if (best_ratio < 1.8f || gap_threshold < 1500) return;
+
+            std::vector<std::vector<int32_t>> segments;
+            std::vector<int32_t> gaps;
+            std::vector<int32_t> current;
+            for (int32_t duration : x) {
+              if (duration < 0 && -duration >= gap_threshold) {
+                if (!current.empty()) {
+                  segments.push_back(current);
+                  current.clear();
+                  gaps.push_back(-duration);
+                }
+              } else {
+                current.push_back(duration);
+              }
+            }
+            if (!current.empty()) segments.push_back(current);
+            if (segments.empty()) return;
+
+            size_t frame_length = 0;
+            int frame_count = 0;
+            for (const auto &candidate : segments) {
+              if (candidate.size() < 4) continue;
+              int count = 0;
+              for (const auto &other : segments) {
+                if (other.size() == candidate.size()) count++;
+              }
+              if (count > frame_count) {
+                frame_count = count;
+                frame_length = candidate.size();
+              }
+            }
+            if (frame_count < 2 || frame_length == 0) return;
+
+            std::vector<int32_t> frame;
+            frame.reserve(frame_length);
+            for (size_t pulse = 0; pulse < frame_length; pulse++) {
+              std::vector<int32_t> values;
+              for (const auto &candidate : segments) {
+                if (candidate.size() == frame_length) values.push_back(candidate[pulse]);
+              }
+              std::sort(values.begin(), values.end());
+              frame.push_back(values[values.size() / 2]);
+            }
+            int consistent_frames = 0;
+            for (const auto &candidate : segments) {
+              if (candidate.size() != frame_length) continue;
+              bool consistent = true;
+              for (size_t pulse = 0; pulse < frame_length; pulse++) {
+                const int32_t expected = frame[pulse];
+                const int32_t tolerance =
+                    std::max<int32_t>(120, std::abs(expected) / 4);
+                if ((candidate[pulse] > 0) != (expected > 0) ||
+                    std::abs(candidate[pulse] - expected) > tolerance) {
+                  consistent = false;
+                  break;
+                }
+              }
+              if (consistent) consistent_frames++;
+            }
+            if (consistent_frames < 2) return;
+            frame_count = consistent_frames;
+            size_t first_frame = 0;
+            while (first_frame < segments.size() &&
+                   segments[first_frame].size() != frame_length) first_frame++;
+            std::vector<int32_t> preamble;
+            if (first_frame > 0 && segments[first_frame - 1].size() <= 8 &&
+                segments[first_frame - 1].size() * 4 <= frame_length) {
+              preamble = segments[first_frame - 1];
+            }
+            std::sort(gaps.begin(), gaps.end());
+            const int32_t gap = gaps.empty() ? 10000 : gaps[gaps.size() / 2];
+
+            const auto csv = [](const std::vector<int32_t> &values) {
+              std::string result;
+              for (size_t index = 0; index < values.size(); index++) {
+                if (index) result += ',';
+                result += std::to_string(values[index]);
+              }
+              return result;
+            };
+            const std::string preamble_csv = preamble.empty() ? "none" : csv(preamble);
+            const std::string frame_csv = csv(frame);
+            ESP_LOGI("ceilingfan.learn",
+                     "CFRAW frequency=433920000 repetitions=%d gap=%d preamble=%s frame=%s",
+                     frame_count, static_cast<int>(gap), preamble_csv.c_str(),
+                     frame_csv.c_str());
+          };
+          log_repeated_static();
+
+          // CJOY frames have a distinct header, 49 data bits, and a four-phase
+          // command checksum. Decode them before the generic mark stream below.
+          const auto read_cjoy_frame = [&](size_t header, std::vector<uint8_t> &frame) {
+            frame.clear();
+            for (size_t index = header + 1; index < x.size(); index++) {
+              const int32_t duration = x[index];
+              if (duration > 6500 && duration < 8200) break;
+              if (duration >= 200 && duration <= 1000) {
+                frame.push_back(duration > 550 ? 1 : 0);
+              }
+            }
+            return frame.size() == 49;
+          };
+          for (size_t header = 0; header < x.size(); header++) {
+            if (x[header] <= 6500 || x[header] >= 8200) continue;
+            std::vector<uint8_t> frame;
+            if (!read_cjoy_frame(header, frame)) continue;
+            uint32_t remote_id = 0;
+            uint8_t command = 0;
+            uint16_t tail = 0;
+            for (size_t bit = 0; bit < 32; bit++) {
+              remote_id = (remote_id << 1) | frame[bit];
+            }
+            for (size_t bit = 32; bit < 38; bit++) {
+              command = static_cast<uint8_t>((command << 1) | frame[bit]);
+            }
+            for (size_t bit = 38; bit < 49; bit++) {
+              tail = static_cast<uint16_t>((tail << 1) | frame[bit]);
+            }
+            static const uint8_t folds[4] = {0xCE, 0x0D, 0x95, 0x67};
+            int phase = -1;
+            for (int candidate = 0; candidate < 4; candidate++) {
+              const uint8_t high = candidate < 2 ? 1 : 0;
+              const uint16_t phase_code =
+                  (static_cast<uint16_t>(high) << 8) |
+                  ((((command << 1) | high) ^ folds[candidate]) & 0xFF);
+              if (tail == static_cast<uint16_t>((phase_code << 2) | 0x02)) {
+                phase = candidate;
+                break;
+              }
+            }
+            if (phase < 0) continue;
+            int matches = 1;
+            for (size_t next = header + 1; next < x.size(); next++) {
+              if (x[next] <= 6500 || x[next] >= 8200) continue;
+              std::vector<uint8_t> candidate;
+              if (read_cjoy_frame(next, candidate) && candidate == frame) matches++;
+            }
+            if (matches >= 2) {
+              ESP_LOGI("ceilingfan.learn",
+                       "CFLEARN family=cjoy command=0x%02X remote_id=0x%08X phase=%d matches=%d",
+                       command, static_cast<unsigned int>(remote_id), phase, matches);
+              return;
+            }
+          }
+
+          // Inspire Pro fast path: locate repeated frames and report the command
+          // plus 25-bit identity in a machine-readable log line.
+          std::vector<uint8_t> bits;
+          bits.reserve(x.size() / 2);
+          for (int32_t duration : x) {
+            if (duration < 200 || duration > 1400) continue;
+            bits.push_back(duration < 650 ? 1 : 0);
+          }
+          const auto known_command = [](uint8_t command) {
+            switch (command) {
+              case 0xE2: case 0xF5: case 0xED: case 0xE5:
+              case 0xDD: case 0xD5: case 0xCD: case 0xDB:
+              case 0xC4: case 0xCC: case 0xD4: case 0xDC:
+              case 0xE4: case 0xEC: case 0xF4: case 0xFC:
+                return true;
+              default:
+                return false;
+            }
+          };
+          for (size_t offset = 0; offset + 66 <= bits.size(); offset++) {
+            uint8_t command = 0;
+            uint32_t remote_id = 0;
+            for (size_t bit = 0; bit < 8; bit++) {
+              command = static_cast<uint8_t>((command << 1) | bits[offset + bit]);
+            }
+            if (!known_command(command)) continue;
+            for (size_t bit = 8; bit < 33; bit++) {
+              remote_id = (remote_id << 1) | bits[offset + bit];
+            }
+            int matches = 1;
+            for (size_t next = offset + 33; next + 33 <= bits.size(); next += 33) {
+              bool equal = true;
+              for (size_t bit = 0; bit < 33; bit++) {
+                if (bits[offset + bit] != bits[next + bit]) {
+                  equal = false;
+                  break;
+                }
+              }
+              if (!equal) break;
+              matches++;
+            }
+            if (matches >= 2) {
+              ESP_LOGI("ceilingfan.learn",
+                       "CFLEARN family=inspire_pro command=0x%02X remote_id=0x%07X matches=%d",
+                       command, static_cast<unsigned int>(remote_id), matches);
+              break;
+            }
+          }

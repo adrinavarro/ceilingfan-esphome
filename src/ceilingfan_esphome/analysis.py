@@ -1,21 +1,13 @@
 from __future__ import annotations
 
 from collections import Counter, defaultdict
-from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 
-from .models import Capture, CeilingFanError, DeviceProfile, LearnedWaveform
+from .models import Capture, CeilingFanError, DeviceProfile
 from .sigmf import load_capture
-
-
-@dataclass(frozen=True)
-class FrameObservation:
-    preamble_us: list[int]
-    frame_us: list[int]
-    gap_us: int
-    repetitions: int
+from .waveform import FrameObservation, learn_waveform
 
 
 def _run_lengths(active: np.ndarray) -> list[tuple[bool, int]]:
@@ -129,46 +121,19 @@ def observe_frames(pulses: list[int]) -> FrameObservation:
     first_frame_index = next(i for i, segment in enumerate(segments) if len(segment) == frame_length)
     preamble: list[int] = []
     if first_frame_index:
-        preamble = segments[first_frame_index - 1]
+        candidate = segments[first_frame_index - 1]
+        # Receivers commonly start in the middle of the first repeated frame.
+        # Only a short, distinct segment is credible as a real wake-up preamble;
+        # a nearly frame-sized segment is detector startup loss and must not be
+        # retransmitted.
+        if len(candidate) <= 8 and len(candidate) * 4 <= frame_length:
+            preamble = candidate
     gap = int(np.median(gaps)) if gaps else 10_000
     return FrameObservation(
         preamble_us=preamble,
         frame_us=frame,
         gap_us=gap,
         repetitions=len(frames),
-    )
-
-
-def _median_waveform(observations: list[FrameObservation]) -> LearnedWaveform:
-    shape = Counter(
-        (len(item.preamble_us), len(item.frame_us)) for item in observations
-    ).most_common(1)[0][0]
-    matching = [
-        item
-        for item in observations
-        if (len(item.preamble_us), len(item.frame_us)) == shape
-    ]
-    if not matching:
-        raise CeilingFanError("Captures do not contain a consistent waveform")
-
-    def median_sequence(attribute: str) -> list[int]:
-        sequences = [getattr(item, attribute) for item in matching]
-        return [int(np.median([sequence[i] for sequence in sequences])) for i in range(len(sequences[0]))]
-
-    consistency = len(matching) / len(observations)
-    repetition_score = min(1.0, float(np.median([item.repetitions for item in matching])) / 4)
-    confidence = round(0.55 * consistency + 0.45 * repetition_score, 3)
-    frame = median_sequence("frame_us")
-    negative_spaces = [abs(value) for value in frame if value < 0]
-    trailing = int(np.median(negative_spaces)) if negative_spaces else 500
-    return LearnedWaveform(
-        preamble_us=median_sequence("preamble_us"),
-        frame_us=frame,
-        gap_us=int(np.median([item.gap_us for item in matching])),
-        repetitions=max(2, int(np.median([item.repetitions for item in matching]))),
-        trailing_space_us=trailing,
-        confidence=confidence,
-        observations=len(observations),
     )
 
 
@@ -184,9 +149,8 @@ def learn_profile(meta_paths: list[Path], name: str) -> DeviceProfile:
     grouped: dict[str, list[FrameObservation]] = defaultdict(list)
     for capture in captures:
         grouped[capture.label].append(observe_frames(extract_pulses(capture)))
-    commands = {label: _median_waveform(items) for label, items in grouped.items()}
+    commands = {label: learn_waveform(items) for label, items in grouped.items()}
     notes = []
     if any(command.confidence < 0.8 for command in commands.values()):
         notes.append("One or more commands have low confidence and require careful validation.")
     return DeviceProfile(name=name, frequency_hz=frequency, commands=commands, notes=notes)
-

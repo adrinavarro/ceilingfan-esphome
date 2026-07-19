@@ -9,3 +9,6 @@ dist/
 firmware/secrets.yaml
 firmware/generated.yaml
 output/
+# Per-installation user data: remote identities and validation results.
+profiles/
+validation.json

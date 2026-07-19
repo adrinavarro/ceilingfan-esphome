@@ -1,19 +1,22 @@
 # Voice assistants
 
-The generated ESPHome firmware exposes a `fan` entity and, when learned, a `light`
-entity. ESPHome connects those entities to Home Assistant through its native API;
-Alexa and Google Home do not consume that API directly.
+The generated ESPHome firmware exposes one `fan` entity per profile and, when
+learned, a corresponding `light` entity. A single ESP32 and CC1101 can therefore
+represent several physical fans. ESPHome connects those entities to Home Assistant
+through its native API; Alexa and Google Home do not consume that API directly.
+The project CLI does consume it directly, so Home Assistant is optional for local
+human or agent control. See [Local control without Home Assistant](local-control.md).
 
 ## Recommended architecture
 
 For users who already run Home Assistant, the recommended local path is:
 
 ```text
-ESP32 + CC1101
+ESP32 + CC1101 (one or more fan profiles)
       |
       | ESPHome native API over the local network
       v
-Home Assistant fan and light entities
+Home Assistant fan and light entities for each profile
       |
       | Home Assistant Matter Hub
       v
@@ -38,8 +41,9 @@ corresponding Matter device types and communicates locally with Matter controlle
 3. Install Home Assistant Matter Hub. Home Assistant OS users can install the
    [RiDDiX add-on repository](https://github.com/riddix/home-assistant-addons); Docker
    and npm installations are also documented by the project.
-4. Add a dedicated entity label such as `Voice Control` to the generated fan and
-   light entities in Home Assistant.
+4. Give every generated entity a clear room-specific name, then add a dedicated
+   entity label such as `Voice Control` to the fan and light entities that should be
+   available by voice.
 5. Create a Matter bridge and filter it with `entity_label: Voice Control`. An
    entity-level label is safer than exposing every `fan` and `light` in the Home
    Assistant instance.
@@ -63,6 +67,7 @@ because controller behavior changes over time.
 
 | Route | Home Assistant required | Local control path | Relative effort | Recommendation |
 |---|---:|---:|---:|---|
+| `ceilingfan control` CLI, bridge web UI, or local agent | No | Yes | Low | Supported for direct control, but does not itself provide Alexa or Google Home integration. |
 | Home Assistant + RiDDiX Matter Hub | Yes | Yes | Low to moderate | Recommended for existing Home Assistant users who want a free, cross-ecosystem bridge. |
 | Home Assistant Cloud | Yes | Voice requests use a managed cloud integration | Low | Easiest officially supported Alexa and Google Home setup; requires a subscription. |
 | Manual Home Assistant Alexa/Google integrations | Yes | No; external HTTPS/cloud services are involved | High | Viable for advanced users who accept DNS, TLS, cloud-console, and account-linking work. |
@@ -110,12 +115,12 @@ software effort, while Amazon's production path includes Matter credentials and
 certification requirements. Development credentials can be used for prototypes,
 but that does not remove the implementation and support cost.
 
-The learned `device-profile.yaml` is intentionally independent of Home Assistant.
+The learned device profile is intentionally independent of Home Assistant.
 If direct Matter becomes worthwhile, it should be implemented as a second firmware
 adapter:
 
 ```text
-device-profile.yaml
+profiles/<fan>.yaml
        |
        +----> ESPHome adapter ----> Home Assistant ----> voice ecosystems
        |
@@ -128,7 +133,8 @@ without Home Assistant is a demonstrated user need.
 
 ## Project decision
 
-The MVP supports Home Assistant as its automation seam. The documented voice path
-is Home Assistant Matter Hub, with Home Assistant Cloud as the easiest supported
+The MVP supports the encrypted ESPHome native API for local CLI and agent control,
+and Home Assistant as its ecosystem automation seam. The documented voice path is
+Home Assistant Matter Hub, with Home Assistant Cloud as the easiest supported
 alternative. Direct Matter remains a possible future adapter; custom Alexa and
 Google cloud integrations are out of scope.

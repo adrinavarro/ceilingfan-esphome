@@ -84,6 +84,20 @@ def test_extracts_repeated_known_protocol() -> None:
     assert len(observation.frame_us) >= 64
 
 
+def test_discards_a_partial_first_frame_instead_of_replaying_it_as_a_preamble() -> None:
+    complete_frame = [300, -700, 700, -300, 300]
+    pulses = [700, -300, 300, -4000]
+    for repetition in range(3):
+        pulses.extend(complete_frame)
+        if repetition < 2:
+            pulses.append(-4000)
+
+    observation = observe_frames(pulses)
+
+    assert observation.preamble_us == []
+    assert observation.frame_us == complete_frame
+
+
 def test_learns_multiple_semantic_commands(tmp_path: Path) -> None:
     commands = {
         "fan_off": 0xE2,

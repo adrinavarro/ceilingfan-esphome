@@ -4,7 +4,7 @@ Thank you for helping make local ceiling fan control easier to reproduce.
 
 ## Before opening a pull request
 
-1. Run `uv run pytest`.
+1. Run `uv run pytest` and `uv run ruff check .` (both come with `uv sync --extra dev`).
 2. Run `uv run ceilingfan --help` and inspect each phase help page.
 3. Document new behavior in English.
 4. Add synthetic or minimized fixtures for new learning behavior.

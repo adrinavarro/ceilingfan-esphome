@@ -11,12 +11,22 @@ requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "ceilingfan-esphome contributors" }]
 dependencies = [
-  "numpy>=2.0",
+  # Each esphome release pins one exact aioesphomeapi version; this range must
+  # stay wide enough to overlap the esphome releases the firmware extra allows.
+  "aioesphomeapi>=45.3,<46",
   "PyYAML>=6.0",
+  # aioesphomeapi only pulls zeroconf on some platforms; `control discover`
+  # needs it everywhere.
+  "zeroconf>=0.147",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0"]
+# firmware: the ESPHome CLI used to flash and deploy bridges.
+# research: numpy for the optional RTL-SDR laboratory.
+# A control-only install (uv tool install) needs no extras.
+firmware = ["esphome>=2026.6.0"]
+research = ["numpy>=2.0"]
+dev = ["pytest>=8.0", "ruff>=0.15", "numpy>=2.0"]
 
 [project.scripts]
 ceilingfan = "ceilingfan_esphome.cli:main"
