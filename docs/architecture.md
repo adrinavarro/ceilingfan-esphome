@@ -116,7 +116,7 @@ RF bridge <- generated ESPHome entities/native API <- Home Assistant <- ecosyste
 The CLI intentionally commands entity IDs rather than RF profile internals. This
 keeps one capability and validation model for humans, agents, and Home Assistant.
 The optional `--web-ui` surface is ESPHome's own web server over the same generated
-entities, protected by basic auth and off by default; it adds phone/browser control
+entities, protected by digest auth and off by default; it adds phone/browser control
 without Home Assistant but never bypasses the entity boundary. Home Assistant owns richer
 automation, dashboards, state reconciliation, and ecosystem exposure, but it is not
 required for basic local operation. See [Local control](local-control.md) and

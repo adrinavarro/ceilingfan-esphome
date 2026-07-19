@@ -74,7 +74,7 @@ The deploy ends by printing the bridge's final hostname. Then
 command in turn and records whether the intended fan physically reacted.
 
 Pass `--web-ui` to also serve a phone/browser control page from the bridge itself
-(HTTP basic auth; see [Local control](local-control.md) for the trade-off).
+(HTTP digest auth; see [Local control](local-control.md) for the trade-off).
 
 Keep the learning firmware installed until every currently available remote has its
 own profile, then run one final deployment. For a worked example, including four

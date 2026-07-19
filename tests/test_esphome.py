@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import re
 
+import pytest
+import yaml
+
 from ceilingfan_esphome.esphome import (
-    _identifier,
     bridge_hostname,
     command_waveform,
     create_secrets,
@@ -14,10 +16,19 @@ from ceilingfan_esphome.esphome import (
     validation_steps,
     write_firmware,
 )
-import pytest
-
 from ceilingfan_esphome.models import CeilingFanError, DeviceProfile, LearnedWaveform
 from ceilingfan_esphome.protocols import build_cjoy_profile
+
+
+class _PermissiveLoader(yaml.SafeLoader):
+    """Parse generated firmware while ignoring ESPHome tags like !secret."""
+
+
+_PermissiveLoader.add_multi_constructor("!", lambda loader, suffix, node: None)
+
+
+def parse_firmware(rendered: str) -> dict:
+    return yaml.load(rendered, _PermissiveLoader)
 
 
 def waveform() -> LearnedWaveform:
@@ -239,7 +250,7 @@ def test_render_firmware_exposes_relative_raw_commands_as_buttons() -> None:
     assert "\nlight:\n" not in rendered
 
 
-def test_render_firmware_web_ui_is_opt_in() -> None:
+def test_render_firmware_web_ui_is_opt_in_and_uses_digest_auth() -> None:
     profile = DeviceProfile(
         name="Bedroom ceiling fan",
         frequency_hz=433_920_000,
@@ -251,7 +262,43 @@ def test_render_firmware_web_ui_is_opt_in() -> None:
 
     assert "web_server:" not in plain
     assert "web_server:" in with_ui
+    assert "type: digest" in with_ui
     assert "password: !secret web_password" in with_ui
+
+
+def test_render_firmware_quotes_names_that_would_break_yaml() -> None:
+    hash_profile = DeviceProfile(
+        name="Fan #2",
+        frequency_hz=433_920_000,
+        commands={
+            "fan_off": waveform(),
+            "fan_speed_1": waveform(),
+            "fan_toggle": waveform(),
+        },
+    )
+    colon_profile = DeviceProfile(
+        name="Fan: bedroom",
+        frequency_hz=433_920_000,
+        commands={"fan_off": waveform(), "fan_speed_1": waveform()},
+    )
+
+    hash_doc = parse_firmware(render_firmware(hash_profile))
+    colon_doc = parse_firmware(render_firmware(colon_profile))
+
+    # Unquoted, everything after `#` parses as a YAML comment and a `: ` splits
+    # the mapping; both names must survive into the parsed document intact.
+    assert hash_doc["substitutions"]["friendly_name"] == "Fan #2"
+    assert hash_doc["button"][0]["name"] == "Fan #2 fan toggle"
+    assert colon_doc["substitutions"]["friendly_name"] == "Fan: bedroom"
+
+    plain = render_firmware(
+        DeviceProfile(
+            name="Bedroom ceiling fan",
+            frequency_hz=433_920_000,
+            commands={"fan_off": waveform(), "fan_speed_1": waveform()},
+        )
+    )
+    assert "name: Ceiling fan\n" in plain  # safe names stay unquoted
 
 
 def test_create_secrets_includes_web_password(tmp_path) -> None:
@@ -349,13 +396,12 @@ def test_validation_steps_cover_every_generated_entity() -> None:
 
     # ESPHome project names are always author.project, so the dot filters the
     # discovery metadata out of the entity-name matches.
-    entity_names = [
+    entity_names = {
         name
         for name in re.findall(r"^    name: (.+)$", rendered, re.MULTILINE)
         if "." not in name
-    ]
-    rendered_object_ids = {_identifier(name) for name in entity_names}
-    assert rendered_object_ids == {step.object_id for step in steps}
+    }
+    assert entity_names == {step.entity_name for step in steps}
 
     validated_commands = {(step.profile_name, step.command) for step in steps}
     for profile in profiles:
@@ -382,13 +428,13 @@ def test_validation_steps_send_absolute_states_and_synchronize_cjoy_first() -> N
     assert by_command["fan_off"].state is False
     assert by_command["light_brightness_1"].brightness == 0.5
     assert by_command["light_brightness_2"].brightness == 1.0
-    assert by_command["fan_off"].object_id == "ceiling_fan"
-    assert by_command["light_off"].object_id == "ceiling_fan_light"
+    assert by_command["fan_off"].entity_name == "Ceiling fan"
+    assert by_command["light_off"].entity_name == "Ceiling fan light"
 
     cjoy_steps = validation_steps([build_cjoy_profile("Office CJOY", 0x175D0310)])
     assert cjoy_steps[0].command == "synchronize_rf_phase"
     assert cjoy_steps[0].entity_type == "button"
-    assert cjoy_steps[0].object_id == "cjoy_synchronize_rf_phase"
+    assert cjoy_steps[0].entity_name == "CJOY synchronize RF phase"
 
 
 def test_require_command_suggests_the_firmware_extra_for_esphome(monkeypatch) -> None:

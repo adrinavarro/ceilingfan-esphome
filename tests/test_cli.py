@@ -4,8 +4,15 @@ from pathlib import Path
 
 import pytest
 
-from ceilingfan_esphome.bridge_learning import BridgeObservation, save_bridge_evidence
+import queue
+
+from ceilingfan_esphome.bridge_learning import (
+    BridgeObservation,
+    FamilyObservation,
+    save_bridge_evidence,
+)
 from ceilingfan_esphome.cli import (
+    _next_learning_observation,
     _profile_output_path,
     _profile_paths,
     build_parser,
@@ -316,6 +323,47 @@ def test_firmware_build_and_deploy_accept_web_ui() -> None:
 
     assert build.web_ui is True
     assert deploy.web_ui is False
+
+
+class _RunningProcess:
+    returncode = None
+
+    def poll(self) -> None:
+        return None
+
+
+def test_family_preference_keeps_the_raw_observation_available() -> None:
+    import threading
+
+    observations: queue.Queue = queue.Queue()
+    families: queue.Queue = queue.Queue()
+    raw = BridgeObservation(
+        frequency_hz=433_920_000,
+        preamble_us=[],
+        frame_us=[300, -700, 700, -300, 300],
+        gap_us=9_000,
+        repetitions=6,
+    )
+    family = FamilyObservation(family="unrecognized_future", remote_id=1, command=2)
+    # The firmware logs CFRAW first and CFLEARN shortly after for the same RF
+    # event; deliver them in that order so the family-preference path runs.
+    observations.put(raw)
+    timer = threading.Timer(0.1, families.put, args=(family,))
+    timer.start()
+
+    recent: list[str] = []
+    first = _next_learning_observation(
+        observations, families, _RunningProcess(), 5.0, recent
+    )
+    timer.join()
+    second = _next_learning_observation(
+        observations, families, _RunningProcess(), 5.0, recent
+    )
+
+    # The family event wins, but the paired raw observation must survive so a
+    # wizard that does not recognize the family can fall back to raw learning.
+    assert first == family
+    assert second == raw
 
 
 def test_profiles_default_into_the_profiles_directory() -> None:

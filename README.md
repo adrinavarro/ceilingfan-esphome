@@ -253,9 +253,10 @@ optional, so daily use shrinks to `ceilingfan control fan --entity bedroom_fan
 
 Deploying with `--web-ui` also serves a control page from the bridge itself at
 `http://home-rf-bridge.local` — usable from any phone or browser on the local
-network, protected by HTTP basic auth (user `admin`, password `web_password` in
-`firmware/secrets.yaml`). Unlike the native API, the web UI is not encrypted,
-which is why it stays opt-in.
+network, protected by HTTP digest auth (user `admin`, password `web_password` in
+`firmware/secrets.yaml`), which keeps the password itself out of the traffic.
+Unlike the native API, the web UI is not encrypted, which is why it stays
+opt-in.
 
 See [Local control without Home Assistant](docs/local-control.md).
 

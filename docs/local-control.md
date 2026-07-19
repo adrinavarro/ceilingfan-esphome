@@ -21,9 +21,10 @@ A bridge deployed with `firmware deploy --web-ui` serves its own control page at
 `http://home-rf-bridge.local`, usable from any phone or browser on the local
 network. It exposes the same generated fan, light, and button entities.
 
-Access uses HTTP basic auth: user `admin`, password `web_password` from
-`firmware/secrets.yaml` (generated automatically). Unlike the native API, the web
-server is plain HTTP on the LAN — anyone who can read that traffic or guess the
+Access uses HTTP digest auth: user `admin`, password `web_password` from
+`firmware/secrets.yaml` (generated automatically). Digest keeps the password
+itself out of the traffic, but the web server is still plain HTTP on the LAN —
+the pages and commands themselves are readable, and anyone who guesses the
 password can operate the fans. That is an acceptable trade-off on a trusted home
 network and the reason the web UI is opt-in rather than default. Omit `--web-ui`
 to keep the encrypted native API as the only control surface.

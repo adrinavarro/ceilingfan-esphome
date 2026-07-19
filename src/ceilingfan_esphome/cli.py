@@ -541,14 +541,18 @@ def _next_learning_observation(
             pass
         try:
             observation = observations.get(
-                timeout=min(0.25, deadline - time.monotonic())
+                timeout=min(0.25, max(0.0, deadline - time.monotonic()))
             )
             try:
                 # Known-family firmware logs follow the generic observation for
-                # the same RF event. Prefer that deeper adapter when it arrives.
-                return families.get(timeout=0.5)
+                # the same RF event. Prefer that deeper adapter when it arrives,
+                # but keep the raw observation available: a caller that does not
+                # recognize the family falls back to it instead of stalling.
+                family = families.get(timeout=0.5)
             except queue.Empty:
                 return observation
+            observations.put(observation)
+            return family
         except queue.Empty:
             if process.poll() is not None:
                 tail = "\n".join(recent_lines).rstrip()
@@ -916,7 +920,7 @@ def cmd_validate(args: argparse.Namespace) -> int:
                         args.port,
                         api_key,
                         step.entity_type,
-                        step.object_id,
+                        step.entity_name,
                         state=step.state,
                         speed=step.speed,
                         brightness=step.brightness,
