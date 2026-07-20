@@ -11,6 +11,14 @@ class CeilingFanError(RuntimeError):
     """A user-facing error with no traceback required."""
 
 
+# The kinds of physical installations a device profile can describe. Only
+# ceiling fans exist today; the field reserves the profile -> firmware seam for
+# future 433 MHz household devices (blind/cover receivers, for example) without
+# renaming fan concepts later. Unknown classes fail loudly, like all uncertain
+# evidence in this project.
+SUPPORTED_DEVICE_CLASSES = ("ceiling_fan",)
+
+
 @dataclass(frozen=True)
 class Capture:
     label: str
@@ -42,6 +50,7 @@ class ProtocolSpec:
 class DeviceProfile:
     name: str
     frequency_hz: int
+    device_class: str = "ceiling_fan"
     commands: dict[str, LearnedWaveform] = field(default_factory=dict)
     protocol: ProtocolSpec | None = None
     modulation: str = "ASK/OOK"
@@ -50,6 +59,11 @@ class DeviceProfile:
     notes: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
+        if self.device_class not in SUPPORTED_DEVICE_CLASSES:
+            raise CeilingFanError(
+                f"Unsupported device class '{self.device_class}'; supported "
+                "classes: " + ", ".join(SUPPORTED_DEVICE_CLASSES)
+            )
         if self.protocol is not None:
             if self.commands:
                 raise CeilingFanError(
@@ -60,6 +74,7 @@ class DeviceProfile:
     def to_dict(self) -> dict[str, Any]:
         result: dict[str, Any] = {
             "name": self.name,
+            "device_class": self.device_class,
             "frequency_hz": self.frequency_hz,
         }
         if self.protocol is None:
@@ -118,6 +133,8 @@ class DeviceProfile:
             )
         return cls(
             name=raw["name"],
+            # Profiles written before the field existed are all ceiling fans.
+            device_class=str(raw.get("device_class", "ceiling_fan")),
             frequency_hz=int(raw["frequency_hz"]),
             commands=commands,
             protocol=protocol,

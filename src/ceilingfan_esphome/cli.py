@@ -157,7 +157,12 @@ def _add_rtl_commands(commands: argparse._SubParsersAction) -> None:
     )
     analyze.add_argument("--captures", type=Path, default=Path("captures"))
     analyze.add_argument("--name", required=True, help="Friendly device name.")
-    analyze.add_argument("--output", type=Path, default=Path("device-profile.yaml"))
+    analyze.add_argument(
+        "--output",
+        type=Path,
+        help="Profile path; defaults to profiles/<name-slug>.yaml so firmware "
+        "deploy picks it up with the wizard's profiles.",
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -458,8 +463,11 @@ def cmd_analyze(args: argparse.Namespace) -> int:
     analysis = _import_research("analysis")
     paths = sorted(args.captures.glob("*.sigmf-meta"))
     profile = analysis.learn_profile(paths, args.name)
-    profile.save(args.output)
-    print(f"Learned {len(profile.commands)} commands and wrote {args.output}")
+    # Same destination as the wizard: firmware deploy discovers profiles/ and
+    # would silently ignore a profile written anywhere else.
+    output = _profile_output_path(args.name, args.output)
+    profile.save(output)
+    print(f"Learned {len(profile.commands)} commands and wrote {output}")
     for label, command in sorted(profile.commands.items()):
         print(
             f"  {label}: {command.repetitions} repetitions, "

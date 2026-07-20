@@ -381,6 +381,44 @@ def test_profiles_default_into_the_profiles_directory() -> None:
     assert wizard.verbose is False
 
 
+def test_research_analyze_defaults_into_the_profiles_directory(
+    monkeypatch, tmp_path: Path, capsys
+) -> None:
+    from types import SimpleNamespace
+
+    from ceilingfan_esphome.cli import cmd_analyze
+    from ceilingfan_esphome.models import DeviceProfile, LearnedWaveform
+
+    monkeypatch.chdir(tmp_path)
+    profile = DeviceProfile(
+        name="Nashi bedroom",
+        frequency_hz=433_920_000,
+        commands={
+            "fan_toggle": LearnedWaveform(
+                preamble_us=[],
+                frame_us=[300, -700, 700, -300],
+                gap_us=9_000,
+                repetitions=6,
+                trailing_space_us=300,
+                confidence=0.9,
+                observations=2,
+            )
+        },
+    )
+    fake_analysis = SimpleNamespace(learn_profile=lambda paths, name: profile)
+    monkeypatch.setattr(
+        "ceilingfan_esphome.cli._import_research", lambda module: fake_analysis
+    )
+    parser = build_parser()
+    args = parser.parse_args(["research", "analyze", "--name", "Nashi bedroom"])
+
+    assert args.output is None
+    assert cmd_analyze(args) == 0
+    # Same destination as the wizard, so firmware deploy discovers the profile.
+    assert (tmp_path / "profiles" / "nashi-bedroom.yaml").exists()
+    assert "profiles/nashi-bedroom.yaml" in capsys.readouterr().out
+
+
 def test_control_device_defaults_to_the_environment(monkeypatch) -> None:
     parser = build_parser()
 

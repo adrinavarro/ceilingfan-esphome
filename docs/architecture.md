@@ -95,6 +95,12 @@ cross the same `DeviceProfile -> firmware` seam; callers do not handle protocol
 timings or state. CJOY phase is stored independently for every profile and relative
 commands are exposed as buttons instead of false absolute state.
 
+Both schema versions carry a `device_class` field (`ceiling_fan` is the only value
+today, and older profiles without the field load as ceiling fans). It reserves the
+profile boundary for future non-fan 433 MHz devices — a blind receiver would become
+a new device class with its own entity mapping (`cover`), not a differently labeled
+fan. Unknown classes are rejected loudly at load time.
+
 The domain boundary is recorded in [CONTEXT.md](../CONTEXT.md). The decision to host
 many independent profiles on one serialized RF bridge is in
 [ADR 0001](adr/0001-one-bridge-many-device-profiles.md). See the

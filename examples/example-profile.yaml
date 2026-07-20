@@ -1,5 +1,6 @@
 schema_version: 1
 name: Example ceiling fan
+device_class: ceiling_fan
 frequency_hz: 433920000
 modulation: ASK/OOK
 output_power_dbm: 0

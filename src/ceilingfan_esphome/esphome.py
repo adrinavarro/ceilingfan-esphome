@@ -27,6 +27,9 @@ def command_waveform(command: LearnedWaveform) -> list[int]:
     def append(duration: int) -> None:
         if not duration:
             return
+        # Same-sign neighbors merge: consecutive marks extend each other, while
+        # overlapping spaces (a frame's trailing space followed by the repeat
+        # gap) keep only the longer silence instead of stacking both.
         if waveform and (waveform[-1] > 0) == (duration > 0):
             if duration < 0:
                 waveform[-1] = -max(abs(waveform[-1]), abs(duration))

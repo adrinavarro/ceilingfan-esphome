@@ -74,9 +74,11 @@ risk to the existing installation is accepted.
 ```sh
 uv run ceilingfan research analyze \
   --captures captures/research-remote \
-  --name "Research remote" \
-  --output profiles/research-remote.yaml
+  --name "Research remote"
 ```
+
+The profile lands in `profiles/<name-slug>.yaml` — the same place the wizard
+writes and `firmware deploy` looks — unless `--output` overrides it.
 
 The generic learner can retain stable raw waveforms without fully decoding their
 bits. Low confidence, inconsistent lengths, or fields that change on every press

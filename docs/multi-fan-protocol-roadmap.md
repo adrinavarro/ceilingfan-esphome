@@ -68,6 +68,8 @@ This work already exists in the current working tree and has automated coverage.
 
 Add explicit fields for:
 
+- device class distinguishing future non-fan installations (implemented:
+  `device_class`, with `ceiling_fan` as the only class so far);
 - protocol family/adapter identifier;
 - remote identity and its bit width;
 - command semantics: absolute, relative, or dynamic;

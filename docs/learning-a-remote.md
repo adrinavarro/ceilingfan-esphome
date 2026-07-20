@@ -74,7 +74,11 @@ uv run ceilingfan learn wizard \
 The raw path requires 433.92 MHz ASK/OOK, a clear frame gap, at least two repeated
 frames per button event, and a stable waveform for each learned label. It cannot
 safely learn rolling codes, encrypted frames, changing counters/checksums, FSK, or
-2.4 GHz remotes.
+2.4 GHz remotes. The repetition requirement is the learner's anti-noise evidence,
+so remotes that transmit each button event only once — some doorbells and blind
+remotes behave this way — are also rejected: the wizard times out instead of
+building an uncertain profile. Holding the button usually produces the repeated
+frames the fan remotes in the catalog emit naturally.
 
 ## Multiple identical fans
 

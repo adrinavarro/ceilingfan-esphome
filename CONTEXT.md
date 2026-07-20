@@ -23,6 +23,13 @@ The durable description of one fan installation: its protocol family, remote ide
 capabilities, and command semantics.
 _Avoid_: Model profile, universal remote
 
+**Device Class**:
+The kind of physical installation a device profile describes. Only `ceiling_fan`
+exists today; the field reserves the profile boundary for future 433 MHz household
+devices such as blind or cover receivers, without renaming fan concepts later.
+Unknown classes fail loudly instead of degrading silently.
+_Avoid_: Home Assistant device class, entity type
+
 **Protocol Family**:
 A shared RF frame structure, timing scheme, and command vocabulary used by one or
 more commercial fan models.

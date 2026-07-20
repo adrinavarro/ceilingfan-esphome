@@ -50,8 +50,10 @@ phone-friendly control page at `http://home-rf-bridge.local`.
   that generates the protocol's rolling four-phase checksum. Marked
   experimental until replay is validated against its physical receiver.
 - **Rolling-code, encrypted, FSK packet, or 2.4 GHz remotes**: not supported.
-  The wizard detects unstable waveforms and refuses to build a misleading
-  profile rather than guessing.
+  The same applies to remotes that send each button event only once — at least
+  two repeated frames are required as anti-noise evidence (holding the button
+  usually provides them). The wizard detects unstable waveforms and refuses to
+  build a misleading profile rather than guessing.
 
 All families cataloged so far use 433.92 MHz ASK/OOK — an observation about
 these fans, not an industry guarantee. See the
