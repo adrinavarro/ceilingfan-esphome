@@ -25,7 +25,9 @@ workflow modules — `research` code imports lazily via `_import_research` in
 - `src/ceilingfan_esphome/bridge_learning.py` — parses `CFRAW`/`CFLEARN` log
   lines from the learning firmware into observations and profiles.
 - `src/ceilingfan_esphome/protocols.py` — structured protocol families
-  (Inspire Pro, CJOY) that synthesize profiles from a remote identity.
+  (Inspire Pro, CJOY, Somfy RTS) that synthesize profiles from a remote
+  identity. Somfy RTS is the first non-fan family (`device_class: roller_blind`)
+  and, like CJOY, is generated with a persistent per-installation counter.
 - `src/ceilingfan_esphome/waveform.py` — numpy-free timing math shared by
   bridge learning and RTL analysis (`FrameObservation`, `learn_waveform`).
 - `src/ceilingfan_esphome/analysis.py` / `sigmf.py` — RTL-SDR research track;

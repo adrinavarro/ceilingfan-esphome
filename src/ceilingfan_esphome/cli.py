@@ -47,7 +47,11 @@ from .esphome import (
     write_firmware,
 )
 from .models import CeilingFanError, DeviceProfile
-from .protocols import build_cjoy_profile, build_inspire_pro_profile
+from .protocols import (
+    build_cjoy_profile,
+    build_inspire_pro_profile,
+    build_somfy_profile,
+)
 
 RESEARCH_INSTALL_HINT = "uv sync --extra research"
 
@@ -207,6 +211,22 @@ def build_parser() -> argparse.ArgumentParser:
     cjoy.add_argument("--remote-id", type=_integer, required=True)
     cjoy.add_argument("--name", required=True)
     cjoy.add_argument(
+        "--output",
+        type=Path,
+        help="Profile path; defaults to profiles/<name-slug>.yaml.",
+    )
+    somfy = learn_commands.add_parser(
+        "somfy",
+        help="Advanced: create an experimental Somfy RTS blind/cover profile.",
+    )
+    somfy.add_argument(
+        "--remote-id",
+        type=_integer,
+        required=True,
+        help="24-bit address for the emulated remote; choose any unused value.",
+    )
+    somfy.add_argument("--name", required=True)
+    somfy.add_argument(
         "--output",
         type=Path,
         help="Profile path; defaults to profiles/<name-slug>.yaml.",
@@ -530,6 +550,21 @@ def cmd_cjoy(args: argparse.Namespace) -> int:
     print(
         f"Created experimental CJOY profile {output} for remote ID "
         f"0x{args.remote_id:08X}"
+    )
+    return 0
+
+
+def cmd_somfy(args: argparse.Namespace) -> int:
+    output = _profile_output_path(args.name, args.output)
+    profile = build_somfy_profile(args.name, args.remote_id)
+    profile.save(output)
+    print(
+        f"Created experimental Somfy RTS profile {output} for emulated remote "
+        f"0x{args.remote_id:06X}"
+    )
+    print(
+        "Next: deploy, then press the 'pairing' button while the motor is in "
+        "programming mode (hold an existing remote's PROG until the blind jogs)."
     )
     return 0
 
@@ -1019,6 +1054,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_inspire_pro(args)
         if args.phase == "learn" and args.action == "cjoy":
             return cmd_cjoy(args)
+        if args.phase == "learn" and args.action == "somfy":
+            return cmd_somfy(args)
         if args.phase == "learn" and args.action in {"wizard", "raw"}:
             return cmd_raw(args)
         if args.phase == "research" and args.action == "scan":

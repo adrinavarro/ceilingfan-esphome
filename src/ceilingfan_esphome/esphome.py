@@ -17,6 +17,16 @@ from .protocols import (
     CJOY_REPETITIONS,
     CJOY_WAKE,
     CJOY_ZERO,
+    SOMFY_COMMANDS,
+    SOMFY_FIRST_HW_SYNC,
+    SOMFY_HW_SYNC_US,
+    SOMFY_INTERFRAME_US,
+    SOMFY_KEY,
+    SOMFY_REPEAT_FRAMES,
+    SOMFY_REPEAT_HW_SYNC,
+    SOMFY_SW_SYNC_US,
+    SOMFY_SYMBOL_US,
+    SOMFY_WAKEUP_US,
     cjoy_tail,
 )
 
@@ -91,6 +101,16 @@ def bridge_hostname(
 
 _SPEED_LABEL = re.compile(r"fan_speed_(\d+)")
 _BRIGHTNESS_LABEL = re.compile(r"light_brightness_(\d+)")
+
+# Somfy cover controls exposed as stateless buttons, in validation press order.
+# Friendly labels are shared by render_firmware and validation_steps so the
+# generated entity names stay identical (guarded by tests/test_esphome.py).
+SOMFY_BUTTONS = (
+    ("cover_up", "up"),
+    ("cover_my", "stop"),
+    ("cover_down", "down"),
+    ("cover_prog", "pairing"),
+)
 
 
 def label_entity_warnings(labels: Sequence[str]) -> list[str]:
@@ -185,23 +205,45 @@ def render_firmware(
             raise CeilingFanError(
                 f"Profile '{item.name}' output power must be between -30dBm and 11dBm"
             )
-        if item.protocol is not None and item.protocol.family != "cjoy":
-            raise CeilingFanError(
-                f"Profile '{item.name}' uses unsupported protocol family "
-                f"'{item.protocol.family}'"
-            )
         if item.protocol is not None:
-            if not 0 <= item.protocol.remote_id < (1 << 32):
+            family = item.protocol.family
+            if family == "cjoy":
+                if not 0 <= item.protocol.remote_id < (1 << 32):
+                    raise CeilingFanError(
+                        f"Profile '{item.name}' CJOY remote ID must be a 32-bit value"
+                    )
+                if "fan_off" not in item.protocol.commands:
+                    raise CeilingFanError(
+                        f"Profile '{item.name}' CJOY protocol must define fan_off"
+                    )
+                if any(
+                    not 0 <= code < (1 << 6)
+                    for code in item.protocol.commands.values()
+                ):
+                    raise CeilingFanError(
+                        f"Profile '{item.name}' CJOY commands must be 6-bit values"
+                    )
+            elif family == "somfy_rts":
+                if not 0 <= item.protocol.remote_id < (1 << 24):
+                    raise CeilingFanError(
+                        f"Profile '{item.name}' Somfy remote address must be 24-bit"
+                    )
+                if not {"cover_up", "cover_down"} <= set(item.protocol.commands):
+                    raise CeilingFanError(
+                        f"Profile '{item.name}' Somfy protocol must define cover_up "
+                        "and cover_down"
+                    )
+                if any(
+                    code not in set(SOMFY_COMMANDS.values())
+                    for code in item.protocol.commands.values()
+                ):
+                    raise CeilingFanError(
+                        f"Profile '{item.name}' has unknown Somfy command nibbles"
+                    )
+            else:
                 raise CeilingFanError(
-                    f"Profile '{item.name}' CJOY remote ID must be a 32-bit value"
-                )
-            if "fan_off" not in item.protocol.commands:
-                raise CeilingFanError(
-                    f"Profile '{item.name}' CJOY protocol must define fan_off"
-                )
-            if any(not 0 <= code < (1 << 6) for code in item.protocol.commands.values()):
-                raise CeilingFanError(
-                    f"Profile '{item.name}' CJOY commands must be 6-bit values"
+                    f"Profile '{item.name}' uses unsupported protocol family "
+                    f"'{family}'"
                 )
 
     profile_ids = _profile_ids(profiles)
@@ -224,11 +266,16 @@ def render_firmware(
         item.protocol is not None and item.protocol.family == "cjoy"
         for item in profiles
     )
+    has_somfy = any(
+        item.protocol is not None and item.protocol.family == "somfy_rts"
+        for item in profiles
+    )
     for current_profile, profile_id in zip(profiles, profile_ids, strict=True):
         command_names = current_profile.command_names()
         command_ids: dict[str, int] = {}
         claimed_commands: set[str] = set()
         cjoy_phase_id = None
+        somfy_code_id = None
         sync_command_ids: list[int] = []
         if current_profile.protocol is None:
             for name in command_names:
@@ -243,6 +290,32 @@ def render_firmware(
                 cases.append(
                     f"            case {command_index}: waveform = {array_name}; "
                     f"length = sizeof({array_name}) / sizeof({array_name}[0]); break;"
+                )
+                command_index += 1
+        elif current_profile.protocol.family == "somfy_rts":
+            protocol = current_profile.protocol
+            somfy_code_id = (
+                f"{profile_id}_somfy_code" if multi_profile else "somfy_code"
+            )
+            globals_entries.append(
+                f"""  - id: {somfy_code_id}
+    type: uint16_t
+    restore_value: yes
+    initial_value: '1'
+"""
+            )
+            for name in command_names:
+                cmd_nibble = protocol.commands[name]
+                command_ids[name] = command_index
+                cases.append(
+                    f"""            case {command_index}: {{
+              const uint16_t rolling = id({somfy_code_id});
+              build_somfy(0x{protocol.remote_id:06X}, 0x{cmd_nibble:02X}, rolling);
+              id({somfy_code_id}) = rolling + 1;
+              waveform = dynamic_waveform.data();
+              length = dynamic_waveform.size();
+              break;
+            }}"""
                 )
                 command_index += 1
         else:
@@ -412,7 +485,32 @@ def render_firmware(
 """
             )
             claimed_commands.update(("light_on", "light_off"))
-        if current_profile.protocol is not None:
+        if (
+            current_profile.protocol is not None
+            and current_profile.protocol.family == "somfy_rts"
+        ):
+            # Somfy is a rolling-code cover: each command is a stateless button so
+            # the CLI, web UI, and Home Assistant can all drive it today. A native
+            # cover entity is the natural next slice once control.py speaks cover.
+            for label, friendly_label in SOMFY_BUTTONS:
+                if label not in command_ids:
+                    continue
+                button_id = (
+                    f"{profile_id}_{label}" if multi_profile else f"somfy_{label}"
+                )
+                button_entries.append(
+                    f"""  - platform: template
+    id: {button_id}
+    name: {_yaml_scalar(f'{current_profile.name} {friendly_label}')}
+    on_press:
+      - script.execute:
+          id: transmit_command
+          frequency: {frequency}
+          output_power: {output_power}
+          command: {command_ids[label]}
+"""
+                )
+        elif current_profile.protocol is not None:
             relative_buttons = (
                 ("light_toggle", "light toggle"),
                 ("dimmer_down", "dimmer down"),
@@ -502,10 +600,11 @@ def render_firmware(
     globals_section = (
         "globals:\n" + "\n".join(globals_entries) if globals_entries else ""
     )
-    cjoy_builder = ""
+    dynamic_builders = ""
+    if has_cjoy or has_somfy:
+        dynamic_builders += "          std::vector<int32_t> dynamic_waveform;\n"
     if has_cjoy:
-        cjoy_builder = f"""          std::vector<int32_t> dynamic_waveform;
-          const auto build_cjoy = [&](uint32_t remote_id, uint8_t code, uint16_t tail) {{
+        dynamic_builders += f"""          const auto build_cjoy = [&](uint32_t remote_id, uint8_t code, uint16_t tail) {{
             dynamic_waveform.clear();
             dynamic_waveform.reserve(502);
             const auto append_pair = [&](int32_t mark, int32_t space) {{
@@ -525,6 +624,54 @@ def render_firmware(
                 }}
               }}
             }}
+          }};
+"""
+    if has_somfy:
+        # Mirrors protocols.somfy_frame_bytes / somfy_waveform. Manchester
+        # half-symbols of the same level coalesce into one pulse; the vector
+        # holds signed marks(+)/spaces(-) like build_cjoy.
+        dynamic_builders += f"""          const auto build_somfy = [&](uint32_t address, uint8_t command, uint16_t rolling_code) {{
+            uint8_t frame[7];
+            frame[0] = 0x{SOMFY_KEY:02X};
+            frame[1] = (command & 0x0F) << 4;
+            frame[2] = (rolling_code >> 8) & 0xFF;
+            frame[3] = rolling_code & 0xFF;
+            frame[4] = (address >> 16) & 0xFF;
+            frame[5] = (address >> 8) & 0xFF;
+            frame[6] = address & 0xFF;
+            uint8_t checksum = 0;
+            for (int i = 0; i < 7; i++) checksum ^= frame[i] ^ (frame[i] >> 4);
+            frame[1] |= checksum & 0x0F;
+            for (int i = 1; i < 7; i++) frame[i] ^= frame[i - 1];
+            dynamic_waveform.clear();
+            dynamic_waveform.reserve(700);
+            bool current_mark = false;
+            int32_t current_len = 0;
+            const auto flush = [&]() {{
+              if (current_len == 0) return;
+              dynamic_waveform.push_back(current_mark ? current_len : -current_len);
+              current_len = 0;
+            }};
+            const auto add = [&](bool mark, int32_t duration) {{
+              if (current_len != 0 && mark == current_mark) {{ current_len += duration; return; }}
+              flush();
+              current_mark = mark;
+              current_len = duration;
+            }};
+            const auto emit_frame = [&](int hw_sync, bool wakeup) {{
+              if (wakeup) {{ add(true, {SOMFY_WAKEUP_US[0]}); add(false, {SOMFY_WAKEUP_US[1]}); }}
+              for (int i = 0; i < hw_sync; i++) {{ add(true, {SOMFY_HW_SYNC_US}); add(false, {SOMFY_HW_SYNC_US}); }}
+              add(true, {SOMFY_SW_SYNC_US[0]}); add(false, {SOMFY_SW_SYNC_US[1]});
+              for (int i = 0; i < 56; i++) {{
+                const uint8_t bit = (frame[i / 8] >> (7 - (i % 8))) & 1;
+                if (bit) {{ add(false, {SOMFY_SYMBOL_US}); add(true, {SOMFY_SYMBOL_US}); }}
+                else {{ add(true, {SOMFY_SYMBOL_US}); add(false, {SOMFY_SYMBOL_US}); }}
+              }}
+              add(false, {SOMFY_INTERFRAME_US});
+            }};
+            emit_frame({SOMFY_FIRST_HW_SYNC}, true);
+            for (int r = 0; r < {SOMFY_REPEAT_FRAMES}; r++) emit_frame({SOMFY_REPEAT_HW_SYNC}, false);
+            flush();
           }};
 """
     entity_sections = []
@@ -632,7 +779,7 @@ script:
           const int32_t *waveform = nullptr;
           size_t length = 0;
 {array_block}
-{cjoy_builder}
+{dynamic_builders}
           switch (command) {{
 {case_block}
             default:
@@ -689,7 +836,7 @@ def validation_steps(profiles: Sequence[DeviceProfile]) -> list[ValidationStep]:
             for key in command_names
             if (match := _BRIGHTNESS_LABEL.fullmatch(key))
         )
-        if profile.protocol is not None:
+        if profile.protocol is not None and profile.protocol.family == "cjoy":
             # Synchronize the receiver's protocol phase before judging commands.
             sync_name = (
                 f"{profile.name} synchronize RF phase"
@@ -771,7 +918,19 @@ def validation_steps(profiles: Sequence[DeviceProfile]) -> list[ValidationStep]:
                 )
             )
             claimed.update(("light_on", "light_off"))
-        if profile.protocol is not None:
+        if profile.protocol is not None and profile.protocol.family == "somfy_rts":
+            for label, friendly_label in SOMFY_BUTTONS:
+                if label not in command_names:
+                    continue
+                steps.append(
+                    ValidationStep(
+                        profile_name=profile.name,
+                        command=label,
+                        entity_type="button",
+                        entity_name=f"{profile.name} {friendly_label}",
+                    )
+                )
+        elif profile.protocol is not None:
             relative_buttons = (
                 ("light_toggle", "light toggle"),
                 ("dimmer_down", "dimmer down"),

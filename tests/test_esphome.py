@@ -17,7 +17,7 @@ from ceilingfan_esphome.esphome import (
     write_firmware,
 )
 from ceilingfan_esphome.models import CeilingFanError, DeviceProfile, LearnedWaveform
-from ceilingfan_esphome.protocols import build_cjoy_profile
+from ceilingfan_esphome.protocols import build_cjoy_profile, build_somfy_profile
 
 
 class _PermissiveLoader(yaml.SafeLoader):
@@ -248,6 +248,77 @@ def test_render_firmware_exposes_relative_raw_commands_as_buttons() -> None:
     assert "name: Inspire Nashi color temperature warm" in rendered
     assert "\nfan:\n" not in rendered
     assert "\nlight:\n" not in rendered
+
+
+def test_render_firmware_exposes_somfy_cover_as_buttons() -> None:
+    profile = build_somfy_profile("Persiana salon", 0x112233)
+
+    rendered = render_firmware(profile)
+    doc = parse_firmware(rendered)
+
+    assert "frequency: 433.42000MHz" in rendered
+    assert "id: somfy_code" in rendered
+    assert "type: uint16_t" in rendered
+    assert "restore_value: yes" in rendered
+    assert "build_somfy(0x112233" in rendered
+    assert "std::vector<int32_t> dynamic_waveform" in rendered
+    button_names = {button["name"] for button in doc["button"]}
+    assert button_names == {
+        "Persiana salon up",
+        "Persiana salon stop",
+        "Persiana salon down",
+        "Persiana salon pairing",
+    }
+    # A rolling-code cover creates no absolute fan/light entity.
+    assert "\nfan:\n" not in rendered
+    assert "\nlight:\n" not in rendered
+
+
+def test_render_firmware_mixes_somfy_and_cjoy_on_one_bridge() -> None:
+    blind = build_somfy_profile("Persiana salon", 0x112233)
+    fan = build_cjoy_profile("Office CJOY", 0x175D0310)
+
+    rendered = render_firmware([blind, fan], bridge_name="Home RF bridge")
+
+    # One shared dynamic_waveform vector serves both dynamic builders.
+    assert rendered.count("std::vector<int32_t> dynamic_waveform") == 1
+    assert "build_somfy(0x112233" in rendered
+    assert "build_cjoy(0x175D0310" in rendered
+    assert "id: persiana_salon_somfy_code" in rendered
+    assert "id: office_cjoy_cjoy_phase" in rendered
+
+
+def test_render_firmware_rejects_incomplete_somfy_profile() -> None:
+    from ceilingfan_esphome.models import ProtocolSpec
+
+    profile = DeviceProfile(
+        name="Broken blind",
+        frequency_hz=433_420_000,
+        device_class="roller_blind",
+        protocol=ProtocolSpec(
+            family="somfy_rts", remote_id=0x112233, commands={"cover_up": 0x2}
+        ),
+        schema_version=2,
+    )
+
+    with pytest.raises(CeilingFanError, match="cover_up and cover_down"):
+        render_firmware(profile)
+
+
+def test_validation_steps_cover_somfy_buttons() -> None:
+    profile = build_somfy_profile("Persiana salon", 0x112233)
+
+    rendered = render_firmware(profile)
+    steps = validation_steps([profile])
+
+    entity_names = {
+        name
+        for name in re.findall(r"^    name: (.+)$", rendered, re.MULTILINE)
+        if "." not in name
+    }
+    assert entity_names == {step.entity_name for step in steps}
+    assert all(step.entity_type == "button" for step in steps)
+    assert {step.command for step in steps} == set(profile.command_names())
 
 
 def test_render_firmware_web_ui_is_opt_in_and_uses_digest_auth() -> None:

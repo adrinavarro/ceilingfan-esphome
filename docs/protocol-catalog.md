@@ -12,6 +12,7 @@ revisions without changing the product name.
 | Inspire YK8078 | 1 | Smaller-diameter Leroy Merlin Inspire model | Static, six speeds, mixed absolute and relative controls | Generic ESP32 raw learning implemented; structured adapter pending |
 | CJOY | 1 | CJOY ceiling fan | 32-bit identity, 6-bit command, four-phase checksum | Experimental structured adapter; physical replay validation pending |
 | Inspire Nashi | 1 | Leroy Merlin Inspire Nashi | Static, five speeds, relative fan/light toggles | Generic ESP32 raw learning implemented; structured adapter pending |
+| Somfy RTS | 0 | Somfy-compatible blind/shutter/awning motors | 433.42 MHz, 24-bit address, rolling 16-bit code, public obfuscated frame | Experimental generated adapter (device class `roller_blind`); needs on-air validation |
 
 Seven physical remotes are represented in the household inventory. Three distinct
 Inspire Pro remote identities have been decoded so far; the fourth household unit is
@@ -45,6 +46,7 @@ remote B, not a fourth remote identity.
 - [Inspire YK8078](protocols/inspire-yk8078.md)
 - [CJOY four-phase protocol](protocols/cjoy-dynamic.md)
 - [Inspire Nashi](protocols/inspire-nashi.md)
+- [Somfy RTS (motorized blinds)](protocols/somfy-rts.md) — first non-fan device class
 
 The bit strings in these documents use the demodulator's observed mark order. A future
 adapter must validate bit ordering and replay against physical receivers before the

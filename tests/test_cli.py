@@ -197,6 +197,27 @@ def test_learn_exposes_cjoy_profile_generator() -> None:
     assert profile.remote_id == 0x175D0310
 
 
+def test_learn_exposes_somfy_profile_generator(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    from ceilingfan_esphome.cli import cmd_somfy
+
+    parser = build_parser()
+    args = parser.parse_args(
+        ["learn", "somfy", "--remote-id", "0x112233", "--name", "Persiana salon"]
+    )
+
+    assert (args.phase, args.action) == ("learn", "somfy")
+    assert args.remote_id == 0x112233
+    assert cmd_somfy(args) == 0
+
+    from ceilingfan_esphome.models import DeviceProfile
+
+    profile = DeviceProfile.load(tmp_path / "profiles" / "persiana-salon.yaml")
+    assert profile.device_class == "roller_blind"
+    assert profile.protocol is not None
+    assert profile.protocol.family == "somfy_rts"
+
+
 def test_learn_exposes_generic_bridge_raw_workflow() -> None:
     parser = build_parser()
 

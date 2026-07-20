@@ -134,6 +134,20 @@ uv run ceilingfan learn cjoy \
   --name "CJOY bedroom"
 ```
 
+Somfy RTS blinds are not learned at all — the protocol is a rolling code, so the
+bridge emulates a fresh remote at a chosen 24-bit address and you pair it with the
+motor's PROG button. This is the first non-fan device class (`roller_blind`) and
+is experimental:
+
+```sh
+uv run ceilingfan learn somfy \
+  --remote-id 0x112233 \
+  --name "Persiana salon"
+```
+
+See [Somfy RTS](protocols/somfy-rts.md) for the pairing procedure, the 433.42 MHz
+retune, and on-air validation.
+
 When adding a remote outside the supported constraints, contributors may choose the
 separate [advanced RTL-SDR research](advanced-rtl-research.md) track. That equipment
 is useful for protocol development, but it does not become a requirement for users

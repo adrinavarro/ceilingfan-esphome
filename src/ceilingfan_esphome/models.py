@@ -11,12 +11,12 @@ class CeilingFanError(RuntimeError):
     """A user-facing error with no traceback required."""
 
 
-# The kinds of physical installations a device profile can describe. Only
-# ceiling fans exist today; the field reserves the profile -> firmware seam for
-# future 433 MHz household devices (blind/cover receivers, for example) without
-# renaming fan concepts later. Unknown classes fail loudly, like all uncertain
-# evidence in this project.
-SUPPORTED_DEVICE_CLASSES = ("ceiling_fan",)
+# The kinds of physical installations a device profile can describe. It says
+# *what the thing is*, orthogonal to the protocol family (how it is addressed):
+# a roller blind might speak Somfy RTS, a ceiling fan Inspire Pro or CJOY.
+# Awnings and roller shutters would be sibling classes sharing the same cover
+# entity mapping. Unknown classes fail loudly, like all uncertain evidence here.
+SUPPORTED_DEVICE_CLASSES = ("ceiling_fan", "roller_blind")
 
 
 @dataclass(frozen=True)

@@ -285,7 +285,24 @@ The firmware generator recognizes:
 `light_on` plus `light_off` creates a binary light. Contiguous brightness
 levels starting at 1 plus `light_off` create a dimmable light. Unknown labels
 in a raw-waveform profile create stateless buttons. Relative CJOY light
-commands create buttons instead of claiming synchronized light state.
+commands create buttons instead of claiming synchronized light state. Somfy RTS
+blind profiles expose `cover_up`, `cover_my` (stop), `cover_down`, and
+`cover_prog` (pairing) as buttons.
+
+## Beyond ceiling fans
+
+The `device profile -> firmware` seam is not fan-specific. Each profile carries a
+`device_class`, and the first non-fan one is **`roller_blind`**: an experimental
+generated adapter for Somfy RTS motors (blinds, roller shutters, awnings) at
+433.42 MHz. Somfy is a rolling code, so it cannot be captured and replayed — the
+bridge emulates a fresh remote and you pair it with the motor's PROG button:
+
+```sh
+uv run ceilingfan learn somfy --remote-id 0x112233 --name "Persiana salon"
+```
+
+See [Somfy RTS](docs/protocols/somfy-rts.md) for the full procedure and its
+experimental status.
 
 ## Status and evidence
 
