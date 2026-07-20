@@ -12,6 +12,7 @@ from aioesphomeapi import (
     APIClient,
     APIConnectionError,
     ButtonInfo,
+    CoverInfo,
     EntityInfo,
     FanInfo,
     LightInfo,
@@ -134,6 +135,14 @@ class NativeAPIClient(Protocol):
 
     def button_command(self, key: int, device_id: int = 0) -> None: ...
 
+    def cover_command(
+        self,
+        key: int,
+        position: float | None = None,
+        stop: bool = False,
+        device_id: int = 0,
+    ) -> None: ...
+
 
 ClientFactory = Callable[[str, int, str], NativeAPIClient]
 
@@ -209,6 +218,8 @@ def _entity_type(entity: EntityInfo) -> str | None:
         return "light"
     if isinstance(entity, ButtonInfo):
         return "button"
+    if isinstance(entity, CoverInfo):
+        return "cover"
     return None
 
 
@@ -297,6 +308,7 @@ async def control_device(
     state: bool | None = None,
     speed: int | None = None,
     brightness: float | None = None,
+    cover_action: str | None = None,
     client_factory: ClientFactory = _default_client_factory,
 ) -> ControlResult:
     client = client_factory(device, port, api_key)
@@ -337,6 +349,22 @@ async def control_device(
             command = {"state": "on" if state else "off"}
             if brightness is not None:
                 command["brightness"] = brightness
+        elif isinstance(entity, CoverInfo):
+            if cover_action not in {"open", "close", "stop"}:
+                raise CeilingFanError(
+                    "A cover command requires an action of open, close, or stop"
+                )
+            # An optimistic template cover maps position 1.0/0.0 to its
+            # open/close actions; stop is a distinct command.
+            if cover_action == "stop":
+                client.cover_command(entity.key, stop=True, device_id=entity.device_id)
+            else:
+                client.cover_command(
+                    entity.key,
+                    position=1.0 if cover_action == "open" else 0.0,
+                    device_id=entity.device_id,
+                )
+            command = {"action": cover_action}
         elif isinstance(entity, ButtonInfo):
             client.button_command(entity.key, device_id=entity.device_id)
             command = {"press": True}

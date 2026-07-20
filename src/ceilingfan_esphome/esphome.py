@@ -102,14 +102,14 @@ def bridge_hostname(
 _SPEED_LABEL = re.compile(r"fan_speed_(\d+)")
 _BRIGHTNESS_LABEL = re.compile(r"light_brightness_(\d+)")
 
-# Somfy cover controls exposed as stateless buttons, in validation press order.
-# Friendly labels are shared by render_firmware and validation_steps so the
-# generated entity names stay identical (guarded by tests/test_esphome.py).
-SOMFY_BUTTONS = (
-    ("cover_up", "up"),
+# Somfy cover-movement commands and the cover action each drives, in validation
+# order. render_firmware and validation_steps share this so the generated entity
+# and its validation stay in step (guarded by tests/test_esphome.py). Pairing
+# (cover_prog) is handled separately as a button, not a movement.
+SOMFY_COVER_ACTIONS = (
+    ("cover_up", "open"),
+    ("cover_down", "close"),
     ("cover_my", "stop"),
-    ("cover_down", "down"),
-    ("cover_prog", "pairing"),
 )
 
 
@@ -259,6 +259,7 @@ def render_firmware(
     fan_entries: list[str] = []
     output_entries: list[str] = []
     light_entries: list[str] = []
+    cover_entries: list[str] = []
     button_entries: list[str] = []
     command_index = 0
     multi_profile = len(profiles) > 1
@@ -489,25 +490,57 @@ def render_firmware(
             current_profile.protocol is not None
             and current_profile.protocol.family == "somfy_rts"
         ):
-            # Somfy is a rolling-code cover: each command is a stateless button so
-            # the CLI, web UI, and Home Assistant can all drive it today. A native
-            # cover entity is the natural next slice once control.py speaks cover.
-            for label, friendly_label in SOMFY_BUTTONS:
-                if label not in command_ids:
-                    continue
+            # A native template cover (open/close/stop) drives the blind from the
+            # CLI, web UI, and Home Assistant alike; it is optimistic because RF is
+            # one-way. Pairing (PROG) is not a movement, so it stays a button.
+            cover_id = f"{profile_id}_cover" if multi_profile else "somfy_cover"
+            stop_action = (
+                f"""    stop_action:
+      - script.execute:
+          id: transmit_command
+          frequency: {frequency}
+          output_power: {output_power}
+          command: {command_ids['cover_my']}
+"""
+                if "cover_my" in command_ids
+                else ""
+            )
+            cover_entries.append(
+                f"""  - platform: template
+    id: {cover_id}
+    name: {_yaml_scalar(current_profile.name)}
+    device_class: shutter
+    optimistic: true
+    assumed_state: true
+    open_action:
+      - script.execute:
+          id: transmit_command
+          frequency: {frequency}
+          output_power: {output_power}
+          command: {command_ids['cover_up']}
+    close_action:
+      - script.execute:
+          id: transmit_command
+          frequency: {frequency}
+          output_power: {output_power}
+          command: {command_ids['cover_down']}
+{stop_action}"""
+            )
+            if "cover_prog" in command_ids:
                 button_id = (
-                    f"{profile_id}_{label}" if multi_profile else f"somfy_{label}"
+                    f"{profile_id}_cover_prog" if multi_profile else "somfy_cover_prog"
                 )
                 button_entries.append(
                     f"""  - platform: template
     id: {button_id}
-    name: {_yaml_scalar(f'{current_profile.name} {friendly_label}')}
+    name: {_yaml_scalar(f'{current_profile.name} pairing')}
+    icon: mdi:link-variant
     on_press:
       - script.execute:
           id: transmit_command
           frequency: {frequency}
           output_power: {output_power}
-          command: {command_ids[label]}
+          command: {command_ids['cover_prog']}
 """
                 )
         elif current_profile.protocol is not None:
@@ -589,7 +622,12 @@ def render_firmware(
           command: {command_ids[label]}
 """
                 )
-    if not fan_entries and not light_entries and not button_entries:
+    if (
+        not fan_entries
+        and not light_entries
+        and not cover_entries
+        and not button_entries
+    ):
         raise CeilingFanError(
             "No supported entities found. Label commands as fan_off/fan_speed_N "
             "or use light_off with light_on or contiguous light_brightness_N commands."
@@ -681,6 +719,8 @@ def render_firmware(
         entity_sections.append("output:\n" + "\n".join(output_entries))
     if light_entries:
         entity_sections.append("light:\n" + "\n".join(light_entries))
+    if cover_entries:
+        entity_sections.append("cover:\n" + "\n".join(cover_entries))
     if button_entries:
         entity_sections.append("button:\n" + "\n".join(button_entries))
     entities = "\n".join(entity_sections)
@@ -807,6 +847,7 @@ class ValidationStep:
     state: bool | None = None
     speed: int | None = None
     brightness: float | None = None
+    cover_action: str | None = None
 
 
 def validation_steps(profiles: Sequence[DeviceProfile]) -> list[ValidationStep]:
@@ -919,15 +960,25 @@ def validation_steps(profiles: Sequence[DeviceProfile]) -> list[ValidationStep]:
             )
             claimed.update(("light_on", "light_off"))
         if profile.protocol is not None and profile.protocol.family == "somfy_rts":
-            for label, friendly_label in SOMFY_BUTTONS:
+            for label, cover_action in SOMFY_COVER_ACTIONS:
                 if label not in command_names:
                     continue
                 steps.append(
                     ValidationStep(
                         profile_name=profile.name,
                         command=label,
+                        entity_type="cover",
+                        entity_name=profile.name,
+                        cover_action=cover_action,
+                    )
+                )
+            if "cover_prog" in command_names:
+                steps.append(
+                    ValidationStep(
+                        profile_name=profile.name,
+                        command="cover_prog",
                         entity_type="button",
-                        entity_name=f"{profile.name} {friendly_label}",
+                        entity_name=f"{profile.name} pairing",
                     )
                 )
         elif profile.protocol is not None:

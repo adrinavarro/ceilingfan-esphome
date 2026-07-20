@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from aioesphomeapi import ButtonInfo, ColorMode, FanInfo, LightInfo
+from aioesphomeapi import ButtonInfo, ColorMode, CoverInfo, FanInfo, LightInfo
 
 from ceilingfan_esphome.control import (
     control_device,
@@ -42,6 +42,9 @@ class FakeClient:
     def button_command(self, key: int, **kwargs: Any) -> None:
         self.commands.append(("button", key, kwargs))
 
+    def cover_command(self, key: int, **kwargs: Any) -> None:
+        self.commands.append(("cover", key, kwargs))
+
 
 def entities() -> list[Any]:
     return [
@@ -61,6 +64,11 @@ def entities() -> list[Any]:
             object_id="office_fan_dimmer_up",
             key=13,
             name="Office fan dimmer up",
+        ),
+        CoverInfo(
+            object_id="persiana_salon",
+            key=14,
+            name="Persiana salon",
         ),
     ]
 
@@ -109,9 +117,10 @@ def test_inspect_device_lists_only_supported_entities() -> None:
         )
     )
 
-    assert [entity.type for entity in result] == ["fan", "light", "button"]
+    assert [entity.type for entity in result] == ["fan", "light", "button", "cover"]
     assert result[0].speed_count == 6
     assert result[1].supports_brightness is True
+    assert result[3].type == "cover"
     assert client.connected is True
     assert client.disconnected is True
 
@@ -178,3 +187,53 @@ def test_control_device_presses_relative_command_button() -> None:
 
     assert result.command == {"press": True}
     assert client.commands == [("button", 13, {"device_id": 0})]
+
+
+def test_control_device_opens_and_stops_a_cover() -> None:
+    open_client = FakeClient(entities())
+    opened = asyncio.run(
+        control_device(
+            "home-rf-bridge.local",
+            6053,
+            "key",
+            "cover",
+            "persiana_salon",
+            cover_action="open",
+            client_factory=lambda *_: open_client,
+        )
+    )
+    assert opened.command == {"action": "open"}
+    assert open_client.commands == [("cover", 14, {"position": 1.0, "device_id": 0})]
+
+    stop_client = FakeClient(entities())
+    stopped = asyncio.run(
+        control_device(
+            "home-rf-bridge.local",
+            6053,
+            "key",
+            "cover",
+            "persiana_salon",
+            cover_action="stop",
+            client_factory=lambda *_: stop_client,
+        )
+    )
+    assert stopped.command == {"action": "stop"}
+    assert stop_client.commands == [("cover", 14, {"stop": True, "device_id": 0})]
+
+
+def test_control_device_rejects_a_cover_without_an_action() -> None:
+    client = FakeClient(entities())
+
+    with pytest.raises(CeilingFanError, match="open, close, or stop"):
+        asyncio.run(
+            control_device(
+                "home-rf-bridge.local",
+                6053,
+                "key",
+                "cover",
+                "persiana_salon",
+                client_factory=lambda *_: client,
+            )
+        )
+
+    assert client.commands == []

@@ -250,7 +250,7 @@ def test_render_firmware_exposes_relative_raw_commands_as_buttons() -> None:
     assert "\nlight:\n" not in rendered
 
 
-def test_render_firmware_exposes_somfy_cover_as_buttons() -> None:
+def test_render_firmware_exposes_somfy_as_a_cover_plus_pairing_button() -> None:
     profile = build_somfy_profile("Persiana salon", 0x112233)
 
     rendered = render_firmware(profile)
@@ -262,16 +262,42 @@ def test_render_firmware_exposes_somfy_cover_as_buttons() -> None:
     assert "restore_value: yes" in rendered
     assert "build_somfy(0x112233" in rendered
     assert "std::vector<int32_t> dynamic_waveform" in rendered
-    button_names = {button["name"] for button in doc["button"]}
-    assert button_names == {
-        "Persiana salon up",
-        "Persiana salon stop",
-        "Persiana salon down",
-        "Persiana salon pairing",
-    }
-    # A rolling-code cover creates no absolute fan/light entity.
+
+    # One optimistic template cover with open/close/stop.
+    assert len(doc["cover"]) == 1
+    cover = doc["cover"][0]
+    assert cover["name"] == "Persiana salon"
+    assert cover["platform"] == "template"
+    assert cover["optimistic"] is True
+    assert {"open_action", "close_action", "stop_action"} <= set(cover)
+
+    # Pairing (PROG) is the only button; movement is the cover's job.
+    assert [button["name"] for button in doc["button"]] == ["Persiana salon pairing"]
+    # A rolling-code cover creates no fan/light entity.
     assert "\nfan:\n" not in rendered
     assert "\nlight:\n" not in rendered
+
+
+def test_render_firmware_omits_somfy_stop_action_without_cover_my() -> None:
+    from ceilingfan_esphome.models import ProtocolSpec
+
+    profile = DeviceProfile(
+        name="No-stop blind",
+        frequency_hz=433_420_000,
+        device_class="roller_blind",
+        protocol=ProtocolSpec(
+            family="somfy_rts",
+            remote_id=0x112233,
+            commands={"cover_up": 0x2, "cover_down": 0x4},
+        ),
+        schema_version=2,
+    )
+
+    doc = parse_firmware(render_firmware(profile))
+
+    cover = doc["cover"][0]
+    assert "stop_action" not in cover
+    assert {"open_action", "close_action"} <= set(cover)
 
 
 def test_render_firmware_mixes_somfy_and_cjoy_on_one_bridge() -> None:
@@ -305,7 +331,7 @@ def test_render_firmware_rejects_incomplete_somfy_profile() -> None:
         render_firmware(profile)
 
 
-def test_validation_steps_cover_somfy_buttons() -> None:
+def test_validation_steps_drive_the_somfy_cover_then_pairing() -> None:
     profile = build_somfy_profile("Persiana salon", 0x112233)
 
     rendered = render_firmware(profile)
@@ -317,8 +343,14 @@ def test_validation_steps_cover_somfy_buttons() -> None:
         if "." not in name
     }
     assert entity_names == {step.entity_name for step in steps}
-    assert all(step.entity_type == "button" for step in steps)
     assert {step.command for step in steps} == set(profile.command_names())
+
+    by_command = {step.command: step for step in steps}
+    assert by_command["cover_up"].entity_type == "cover"
+    assert by_command["cover_up"].cover_action == "open"
+    assert by_command["cover_down"].cover_action == "close"
+    assert by_command["cover_my"].cover_action == "stop"
+    assert by_command["cover_prog"].entity_type == "button"
 
 
 def test_render_firmware_web_ui_is_opt_in_and_uses_digest_auth() -> None:

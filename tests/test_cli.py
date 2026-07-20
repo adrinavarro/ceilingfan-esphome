@@ -120,6 +120,28 @@ def test_control_cli_exposes_list_and_entity_commands() -> None:
     )
 
 
+def test_control_cover_parses_action_without_shadowing_subcommand() -> None:
+    parser = build_parser()
+
+    args = parser.parse_args(
+        [
+            "control",
+            "cover",
+            "--device",
+            "home-rf-bridge.local",
+            "--entity",
+            "persiana_salon",
+            "--action",
+            "open",
+        ]
+    )
+
+    # The subcommand dest ("action") must survive; the cover action uses its own.
+    assert (args.phase, args.action) == ("control", "cover")
+    assert args.cover_action == "open"
+    assert args.entity == "persiana_salon"
+
+
 def test_learn_doctor_requires_esphome_not_rtl(
     monkeypatch, tmp_path: Path, capsys
 ) -> None:

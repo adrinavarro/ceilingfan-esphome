@@ -388,6 +388,20 @@ def build_parser() -> argparse.ArgumentParser:
     control_button.add_argument(
         "--entity", required=True, help="Entity object_id or exact name."
     )
+
+    control_cover = control_commands.add_parser(
+        "cover", help="Open, close, or stop a cover entity (e.g. a Somfy blind)."
+    )
+    _add_control_connection_arguments(control_cover)
+    control_cover.add_argument(
+        "--entity", required=True, help="Entity object_id or exact name."
+    )
+    control_cover.add_argument(
+        "--action",
+        dest="cover_action",
+        required=True,
+        choices=("open", "close", "stop"),
+    )
     return parser
 
 
@@ -908,6 +922,7 @@ def cmd_control(args: argparse.Namespace) -> int:
     state = getattr(args, "state", None)
     speed = getattr(args, "speed", None)
     brightness = getattr(args, "brightness", None)
+    cover_action = getattr(args, "cover_action", None)
     if state == "off" and speed is not None:
         raise CeilingFanError("--speed can only be used with --state on")
     if state == "off" and brightness is not None:
@@ -922,6 +937,7 @@ def cmd_control(args: argparse.Namespace) -> int:
             state=None if state is None else state == "on",
             speed=speed,
             brightness=brightness,
+            cover_action=cover_action,
         )
     )
     if args.json:
@@ -967,6 +983,7 @@ def cmd_validate(args: argparse.Namespace) -> int:
                         state=step.state,
                         speed=step.speed,
                         brightness=step.brightness,
+                        cover_action=step.cover_action,
                     )
                 )
             except CeilingFanError as exc:

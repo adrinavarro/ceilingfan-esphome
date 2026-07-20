@@ -286,8 +286,8 @@ The firmware generator recognizes:
 levels starting at 1 plus `light_off` create a dimmable light. Unknown labels
 in a raw-waveform profile create stateless buttons. Relative CJOY light
 commands create buttons instead of claiming synchronized light state. Somfy RTS
-blind profiles expose `cover_up`, `cover_my` (stop), `cover_down`, and
-`cover_prog` (pairing) as buttons.
+blind profiles expose a native `cover` entity from `cover_up`, `cover_down`, and
+`cover_my` (stop), plus a `cover_prog` pairing button.
 
 ## Beyond ceiling fans
 
@@ -299,6 +299,14 @@ bridge emulates a fresh remote and you pair it with the motor's PROG button:
 
 ```sh
 uv run ceilingfan learn somfy --remote-id 0x112233 --name "Persiana salon"
+```
+
+This creates a native `cover` entity, controllable without Home Assistant just
+like a fan:
+
+```sh
+uv run ceilingfan control cover --device home-rf-bridge.local \
+  --entity persiana_salon --action open
 ```
 
 See [Somfy RTS](docs/protocols/somfy-rts.md) for the full procedure and its

@@ -4,9 +4,10 @@
 
 Somfy RTS is the first **non-fan** device class the bridge can drive
 (`device_class: roller_blind`). The frame encoder, per-installation rolling-code
-counter, firmware transmitter, CLI generator, and stateless up/stop/down/pairing
-entities are implemented. It is **experimental** until a generated transmission
-is accepted by a physical Somfy motor and confirmed on the air.
+counter, firmware transmitter, CLI generator, a native `cover` entity
+(open/close/stop), and a pairing button are implemented, and `ceilingfan control
+cover` drives it without Home Assistant. It is **experimental** until a generated
+transmission is accepted by a physical Somfy motor and confirmed on the air.
 
 This is a *generated* adapter, not learn-and-replay. Somfy RTS is a rolling-code
 protocol: the receiver rejects any frame whose 16-bit counter is not ahead of the
@@ -68,14 +69,18 @@ Somfy needs no capture. Retune the radio, generate a profile, deploy, and pair.
 4. **Pair the virtual remote with the motor.** Put the motor into programming mode
    (hold the PROG button of an already-paired remote until the blind jogs), then
    press the generated **pairing** button within a few seconds. The blind jogs
-   again to confirm. Now `up`, `stop`, and `down` control it.
+   again to confirm. Now the cover's open/close/stop control it.
 
    ```sh
    uv run ceilingfan control button --device home-rf-bridge.local \
      --entity persiana_salon_pairing
-   uv run ceilingfan control button --device home-rf-bridge.local \
-     --entity persiana_salon_up
+   uv run ceilingfan control cover --device home-rf-bridge.local \
+     --entity persiana_salon --action open
    ```
+
+   The blind is a native `cover` entity: `--action open|close|stop` from the CLI,
+   the open/close/stop widget in the web UI, and a shutter card in Home Assistant.
+   It is optimistic (RF is one-way, so there is no real position feedback).
 
 ## Verification before trusting it
 
@@ -89,10 +94,7 @@ Somfy needs no capture. Retune the radio, generate a profile, deploy, and pair.
 
 ## Home Assistant
 
-The commands are exposed as stateless buttons so the CLI, web UI, and Home
-Assistant all work today. For a proper cover widget with open/close/stop, wrap the
-three buttons in a Home Assistant
-[template cover](https://www.home-assistant.io/integrations/cover.template/)
-(optimistic — RF is one-way, so there is no real position feedback). A native
-ESPHome `cover` entity is the planned next slice, which also needs `cover` support
-in `ceilingfan control`.
+The generated `cover` entity appears directly as a shutter in Home Assistant with
+open/close/stop, needing no template helper. Pairing stays a separate button. The
+same entity is controllable from the CLI (`ceilingfan control cover`) and the web
+UI, so Home Assistant is optional as everywhere else in this project.
